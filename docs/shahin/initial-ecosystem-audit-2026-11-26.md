@@ -58,3 +58,56 @@ The connected account listing returned these ten repositories: Orkas, opencode, 
 
 ## Scope and limitations
 This is an initial source-level audit, not a full security audit, runtime benchmark, Windows build verification or legal opinion. No tests are claimed as passed unless executed and recorded. No production source code or user data was changed in this commit.
+
+
+## 8. Detailed voice, transcription and file-workflow findings
+
+### Speech input is not local in the current Orkas voice-chat path
+
+`src/main/features/voice_input.ts` obtains a short-lived ticket from `https://orkas.ai/v1/audio/transcription_sessions` using the user's Orkas API key, then opens a WebSocket at `wss://orkas.ai/api/voice/asr_ws`. The current voice-input session is capped at 120 seconds. The long-lived API key stays in the main process, which is a good credential boundary, but audio transcription in this path is hosted by Orkas rather than a local Whisper runtime.
+
+### Local Whisper exists, but in the media workflow
+
+`scripts/fetch-whisper.cjs` installs a pinned whisper.cpp CLI and multilingual base-q5_1 model for packaged targets. Its own notice explicitly scopes this runtime to local VideoStudio speech transcription. This is useful evidence that Orkas can run local ASR, but it does not establish a general-purpose, always-available local Persian voice-chat input. Persian accuracy is not benchmarked in the checked-in evidence.
+
+### TTS is pluggable but provider-backed, not local by default
+
+`src/main/features/tts.ts` documents OpenAI-compatible, ElevenLabs and Doubao backends and explicitly states that speech generation does not download or run a local renderer implicitly. `tts_auth.ts` lists Orkas, Doubao, MiniMax, Alibaba Cloud, Google, ElevenLabs, OpenAI and custom OpenAI-compatible providers. The capability layer has locale-aware voice selection, but the checked static model catalog does not establish a verified Persian voice for every provider. Persian TTS must be benchmarked by voice/model and provider; local Audio8 Persian TTS is a separate experimental candidate, not an integrated Orkas backend.
+
+### Document management is not the same as automatic file sorting
+
+Orkas has:
+- Scoped file reading, search and grep tools with path sandboxing.
+- A global and project Library with extraction, embedding, indexing, reconciliation and semantic retrieval.
+- DOCX/XLSX/PPTX creation/review tools and bundled OfficeCLI.
+- Skills, marketplace and MCP integration.
+
+The inspected file-tool interface is primarily for reading/searching and scoped work. The Library indexes and retrieves documents; it is not itself a general-purpose policy-driven file organizer. I found no confirmed end-to-end batch workflow that proposes a taxonomy, previews every move/rename, applies it after approval, and provides reliable one-click undo. Therefore the file-organizer requirement remains a genuine gap to implement as a guarded Skill or evaluate separately.
+
+## 9. Refined candidate decisions
+
+| Candidate | Verified repository facts | Decision |
+|---|---|---|
+| [NeurAI](https://github.com/Dr-Bagheri/neurai-mvp) | Apache-2.0; Persian-first meeting assistant; local faster-whisper, diarization, formal Persian minutes, meeting notepad, action tracking and RAG. README describes v0.3 while architecture file labels itself v0.2, so version/status claims need reconciliation. Optional pyannote diarization is pinned below 4 because its own architecture notes a VRAM regression in 4.x. | **Recommend a separate fork for evaluation**, not merge. Its offline meeting path is unusually aligned with the Persian meeting requirement. Benchmark GPU/RAM use on the HP Victus; keep cloud transcription disabled by default. |
+| [Memex](https://github.com/jagdeepvirdi/memex) | MIT; local-first second brain; auto-classifies notes, links, documents and voice memos; Whisper ingestion; RAG, entity graph, Obsidian Markdown import/export, provenance and review workflow. Standard deployment uses Docker Desktop, PostgreSQL/pgvector and Ollama. | **Recommend a separate fork for evaluation** as the closest match to the user's "capture anything, organize it, and find it later" requirement. Evaluate whether its data model can interoperate with SCKG; do not let it replace SCKG. |
+| [AI File Butler](https://github.com/ForgeLabsSoft/ai-file-butler) | GPL-3.0; Windows/offline; local Ollama classification, content-aware naming, preview, manual mode, undo and learning from corrections. | **Useful separate evaluation fork only.** Do not copy its code into the MIT Orkas/Shahin Core codebase without a deliberate GPL distribution decision. First compare its safe batch workflow against a new Orkas Skill. |
+| [Dastyar AI](https://github.com/momoazn/dastyar-ai) | MIT; Persian-first local assistant with RTL UI, Ollama, Whisper speech-to-text, document Q&A and summaries; Bun monorepo and separate Go whisper.cpp service. README screenshots use English audio and do not prove Persian ASR quality. | Keep as a **reference**, not another fork for now: most of its features overlap with Orkas + NeurAI + Memex. |
+| [Persian ASR Compare](https://github.com/erfnzdeh/persian-asr-compare) | MIT; compares Persian Whisper fine-tune against general large-v3; the provided runner is Apple Silicon/MLX-specific and the reported WER is model-card sourced, not measured by this repo. | Do not fork for Windows. Reuse the idea of a repeatable fa benchmark; evaluate the Persian Whisper model separately with a Windows/CUDA-compatible runner. |
+| [Audio8 Persian TTS](https://github.com/ard9/Audio8-Persian-TTS) | Apache-2.0 repository; Persian fine-tune of a 0.6B model; author reports intelligible but somewhat robotic prosody and MOS 3.32 ± 0.12 in its stated test. | Do not fork as an application. Evaluate the published model weights and license separately as a local TTS backend candidate. |
+| [Khoj](https://github.com/khoj-ai/khoj) | AGPL-3.0; mature self-hostable knowledge assistant, agents and document Q&A. | Keep as a separate-service benchmark only. Do not embed its source into Shahin Core without a license review. |
+| [Obsidian](https://obsidian.md/) | The application is proprietary, not an open-source GitHub project to fork. Markdown vaults are portable. | Use Markdown vault import/export and link conventions as interoperability, not as a dependency. |
+
+## 10. Recommended fork queue
+
+Only create these additional forks, each independent and on its own upstream history:
+1. `Dr-Bagheri/neurai-mvp` — Persian meeting intelligence evaluation.
+2. `jagdeepvirdi/memex` — personal knowledge capture and auto-classification evaluation.
+3. `ForgeLabsSoft/ai-file-butler` — optional isolated file-sorting evaluation; GPL-3.0 boundary must remain explicit.
+
+Do not fork Dastyar AI, Khoj, Persian ASR Compare or Audio8 right now. Keep them as references/model candidates until the first three evaluations reveal a concrete gap.
+
+## 11. Hardware and privacy implications
+
+The target laptop has 24 GB system RAM and an RTX 3050 Laptop GPU with 6 GB VRAM. NeurAI's stated baseline (16 GB RAM, 8-core CPU, 4 GB GPU) is nominally within the headline numbers, but actual concurrency, diarization and local LLM model residency can exceed the comfortable VRAM budget. Test one heavy pipeline at a time; do not assume all models can remain resident. Memex's Docker/Postgres/Ollama stack adds background memory use. The local Whisper base model is more plausible for the laptop than simultaneously loading a large-v3 ASR, diarization model and chat model.
+
+For all voice/meeting workflows, the default must be local processing. Any cloud path must be opt-in per task/session with an explicit disclosure of provider, data sent and potential charges. Confidential meeting audio must never silently fall back to cloud.
